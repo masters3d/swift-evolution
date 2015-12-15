@@ -18,7 +18,10 @@ Swift-evolution thread: ternary operator ?: suggestion
 
 ## Motivation
 
-The main purpose is to replace the ternary operator with and stand alone if-then-else expression that will be distinct from the if-else statements. With this approach type inference can figure out what to initially conditionally assign a variable, with statements this is not possible. Statements can also consist of multiple statements, which is not possible with an expression.
+The main purpose is to replace the ternary operator with an “if/else expression of some sort”.
+
+I propose the introduction of a stand alone if-then-else expression that will be distinct from the if-else statements. With this approach type inference can figure out what to initially conditionally assign a variable, with statements this is not possible. Statements can also consist of multiple statements, which is not possible with an expression.
+
 
 ##Reason for replacement:
 
@@ -49,14 +52,24 @@ First the ternary "?:" operators are removed from the language, replaced with th
 
 where the if...then...else clause requires all three keywords. This will help to differentiate it from a statement. 
 
-Note that any of these expressions can be surrounded by parenthesis to make clear that the expression returns a value but it is not required. 
-
+before:
+``` swift
+  let color =  stop ? Color.red : Color.green
+```
+after:
 ``` haskell
-  let color = (if stop then Color.red else Color.green)  
+  let color = if stop then Color.red else Color.green
 ```
 
 Nesting of expressions is supported providing "else if" like capabilities. 
 
+before:
+``` swift
+  let color = stop ? ( !broken ? Color.red : Color.blinkinRed) : 
+              (changing ? Color.yellow : Color.green)  
+```
+
+after:
 ``` haskell
   let color = if stop then (if !broken then Color.red else Color.blinkinRed) else 
               (if changing then Color.yellow else Color.green)  
@@ -84,11 +97,109 @@ One objection is that now it become harder when teaching the language to tell pe
 
 "if" expression results must be a compatible type of the result. 
 
-for if statements an optional "then" keyword would be added to the grammar. 
+The then keyword allows the compiler to disambiguate the if expression from the if statement. When somebody types ```if bool`` then parser would wait for either a braces or a then keyword. 
+If the then keyword is omitted but a value is inputed `` if bool 1 else 2`` the parser could suggest a fix it or give an error. 
 
 ## Impact on existing code
 
-All places where the ternary operator is used would need to be replaced with if...then...else. The Convert To Latest Swift Syntax in Xcode could ease this transition in the mac platform. 
+ All places where the ternary operator is used would need to be replaced with if...then...else. The Convert To Latest Swift Syntax in Xcode could ease this transition in the mac platform. 
+
+## Sample of code on the wild
+
+before:
+``` swift
+  return (heapAlign < valueAlign
+            ? (valueAlign < elementAlign ? elementAlign : valueAlign)
+            : (heapAlign < elementAlign ? elementAlign : heapAlign))
+```
+after:
+``` haskell
+  return (if heapAlign < valueAlign
+            then (if valueAlign < elementAlign then elementAlign else valueAlign)
+            else (if heapAlign < elementAlign then elementAlign else heapAlign))
+```
+before:
+``` swift
+	 subscript(position: Int) -> UTF16.CodeUnit {
+	    return position == 0 ? (
+	      endIndex == 1 ? UTF16.CodeUnit(value.value) : UTF16.leadSurrogate(value)
+	    ) : UTF16.trailSurrogate(value)
+	  }
+	}  
+```
+after:
+```haskell
+	 subscript(position: Int) -> UTF16.CodeUnit {
+	    return if position == 0 then (
+	     if endIndex == 1 then UTF16.CodeUnit(value.value) else UTF16.leadSurrogate(value)
+	    ) else UTF16.trailSurrogate(value)
+	  }
+	}  
+```
+
+before:
+```swift
+	 _StringBuffer(
+          capacity: newCount,
+          initialSize: 0,
+          elementWidth:
+            width == 1 ? 1
+            : representableAsASCII() && !newElements.contains { $0 > 0x7f } ? 1
+            : 2
+        )
+```
+
+after:
+```haskell
+	 _StringBuffer(
+          capacity: newCount,
+          initialSize: 0,
+          elementWidth:
+            if width == 1 then 1
+            else if representableAsASCII() && !newElements.contains { $0 > 0x7f } then 1
+            else 2
+        )
+```
+
+before:
+```swift
+public mutating func next() -> Element? {
+    if done {
+      return nil
+    }
+    if stride > 0 ? current >= end : current <= end {
+      if current == end {
+        done = true
+        return current
+      }
+      return nil
+    }
+    let ret = current
+    current += stride
+    return ret
+  }
+}
+```
+
+after:
+```haskell
+public mutating func next() -> Element? {
+    if done {
+      return nil
+    }
+    if (if stride > 0 then current >= end else current <= end) {
+      if current == end {
+        done = true
+        return current
+      }
+      return nil
+    }
+    let ret = current
+    current += stride
+    return ret
+  }
+}
+```
 
 
 ## Alternatives considered
@@ -105,17 +216,19 @@ The problem with this is that in expressions all cases must be handled. In a sta
 
 Another problem is the proliferation of braces, expressions should be light, it looks cumbersome to have braces all through your expressions. It does not look as clean having braces in an expression and you would never use braces in a ternary expression. Further, it will help express the difference between an expression and a statement to only use braces for statement blocks. 
 
-There is a clear distinction made between these two concepts in the existing language. *If making statements into expressions is the answer that everyone wants then this proposal should be declined*; however that is a much deeper change than what is being proposed here. 
+There is a clear distinction made between these two concepts in the existing language. *If making statements into expressions is the answer that everyone wants then this proposal should be declined in favor of if-else braced expressions*; however that is a much deeper change than what is being proposed here. 
 
 Expressions are mathematical concepts where there are inputs and one return value. Statement blocks are lists of commands without any such guaranteed output or side effects. Functional programming uses expressions to avoid much of the state and side effects that are common with imperative programming. It is very likely it would encourage a bunch of imperative programming side effect code based code, if statements become expressions.  It will muddy the concept of expressions in people’s minds, trying to explain this to a student would be harder if the concepts are combined. I will say, I am not a huge fan of this idea, even if it is possible (although will try to keep an open mind).
 
 Swift straddles the worlds of functional and imperative programming and a lot of functional programmers are drawn to the language because of it, keeping these concepts separate by having expressions and statements would help to keep the approaches separate in people’s minds. If you want to do the imperative approach use the if-else statement, if you want to do the functional approach use the if-then-else expressions. If they are combined then code that was written functionally might start getting imperative by the changes made by other developers on the team.
 
-### Is it really better? Why not just keep ternary ?: expressions?
+### Is it really better? Why not just keep ternary ```?:``` expressions?
 
-This is a valid question, there is an advantage in compactness to ternary expressions; however, I believe that the inconsistencies in the use of the question mark and the colon are alone grounds for its replacement, in addition to the lack readability. If Swift already had if-else expression then there would be no need to introduce an if-then-else expression. I believe that by adding a functional/ no side effects if-then-else expression to stand-in as a replacement for the ?: ternary operator, will strike a balance between a **functional** if expression and the current if statement. 
+This is a valid question, there is an advantage in compactness to ternary expressions; however, I believe that the inconsistencies in the use of the question mark and the colon alone are grounds for its replacement, in addition to the lack readability. If Swift already had if-else expression then there would be no need to introduce an if-then-else expression. I believe that by adding a functional/ no side effects if-then-else expression to stand-in as a replacement for the ?: ternary operator, will strike a balance between a **functional** if expression and the current if statement. 
 
 ### What do other languages do?
+
+Rust has done away with the ?: operator but they already had if-else expressions so it was an easy swap; though this was very emotional for a lot of people. [Rust removal of ?:](https://github.com/rust-lang/rust/issues/1698#issuecomment-3705066)
 
 Other languages such as F#, Haskell, OCaml, SML, Lua and Ruby have long ternary like operations that use the keyword “then”.
 
@@ -123,7 +236,7 @@ Other languages such as F#, Haskell, OCaml, SML, Lua and Ruby have long ternary 
   result = if cond then "ABC" else "CDF"
 ```
 
-Many of these approaches were explored in the thread, the "then" approach seemed superior to alternatives likes python’s middle conditional . 
+Many of these approaches were explored in the thread, the "then" approach seemed superior to alternatives like python’s middle conditional . 
 
 ``` python
 result = "ABC" if cond else “CDF"
