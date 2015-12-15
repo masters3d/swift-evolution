@@ -9,7 +9,12 @@
 
 The ternary operator ?: serves as a control flow expression in Swift (as well as other c-based languages).  It’s use leads to very compact, hard to read  code that can be confused with Swift’s Optionals. 
 
-Swift-evolution thread: [ternary operator ?: suggestion ](https://lists.swift.org/pipermail/swift-evolution/Week-of-Mon-20151207/000810.html)
+Swift-evolution thread: ternary operator ?: suggestion 
+
+[Dec 2015, ](https://lists.swift.org/pipermail/swift-evolution/2015-December/000098.html)
+[Week of 11-30,  ](https://lists.swift.org/pipermail/swift-evolution/Week-of-Mon-20151130/000416.html)
+[Week of 12-07, ](https://lists.swift.org/pipermail/swift-evolution/Week-of-Mon-20151207/000810.html)
+[Week of 12-14 ](https://lists.swift.org/pipermail/swift-evolution/Week-of-Mon-20151214/002209.html)
 
 ## Motivation
 
@@ -19,7 +24,7 @@ The main purpose is to replace the ternary operator with and stand alone if-then
 
 * Eliminate the use of ”?”s that are not related to Swift Optionals
 * Eliminate the use of the colon as an assignment operator
-* Hard to read in code with lost of optionals
+* Hard to read in code with lots of optionals
 * Confusing to beginners ?:
 * Bizarre C magic
 
