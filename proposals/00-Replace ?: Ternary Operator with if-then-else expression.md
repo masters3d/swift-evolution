@@ -130,7 +130,7 @@ This is a possibility as a transition point but I should be flagged for removal 
 
 ### Why add a keyword? 
 
-"then" is required for this proposal. 
+A new keyword is required for this proposal: ”then” or a equivalent keyword / character 
 
 We considered ways of not adding additional keywords. As it may be unclear when to use "then" or not, this is addressed in two ways. It is invalid to have "then" without "else" and  statements must be surrounded in braces as they can be multiple lines long. 
 
@@ -159,8 +159,7 @@ If really avoiding another keyword is a problem, it was  suggested to use "do" b
 
 ### Since "then" used a lot in libraries, we should be careful about taking it. 
 
-This is a valid point. The use of then is more of a modifier to the if statement than a keyword so it should be possible to allow the use of then in the same way ```let required = 1 ;
-let convenience = 1``` is legal in swift. 
+This is a valid point. Alternatives are [ : ] [ -> ] [ do ]
 
 
 ### Feedback from the community
