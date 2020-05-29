@@ -272,7 +272,7 @@ These last two points (and some other considerations) strongly suggest that the 
 
 ## Detailed design
 
-[SE-0258](https://github.com/apple/swift-evolution/blob/master/proposals/0258-property-delegates.md) introduced the concept of custom attributes to Swift, and while that proposal is still under development on its main subject, the Core Team has accepted the portions relating to custom attributes as a useful technical direction.  We will build on that here.
+[SE-0258](https://github.com/apple/swift-evolution/blob/master/proposals/0258-property-wrappers.md) introduced the concept of custom attributes to Swift, an approach we build on here.
 
 ### Function builder types
 
@@ -290,7 +290,7 @@ A function builder type can be used as an attribute in two different syntactic p
 
 A function builder type can also be used as an attribute on a parameter of function type, including on parameters of protocol requirements. A function builder attribute used in this way causes the function builder transform to be applied to the body of any explicit closures that are passed as the corresponding argument, unless the closure contains a `return` statement.  This is considered part of the interface of the function and can affect source compatibility, although it does not affect its ABI.
 
-### Function-building methodS
+### Function-building methods
 
 To be useful as a function builder, the function builder type must provide a sufficient subset of the function-building methods.  The protocol between the compiler's generated code and the function builder type is intended to be *ad hoc* and arbitrarily extensible in the future.
 
@@ -302,7 +302,7 @@ This is a quick reference for the function-builder methods currently proposed.  
 
 * `buildBlock(_ components: Component...) -> Component` is used to build combined results for most statement blocks.
 
-* `buildFunction(_ components: Component...) -> Return` is used to build combined results for top-level function bodies.  It is only necessary if the DSL wants to distinguish `Component` types from `Return` types, e.g. if it wants builders to internally traffic in some type that it doesn't really want to expose to clients.  If it isn't declared, `buildBlock` will be used instead.
+* `buildFinalResult(_ components: Component) -> Return` is used to finalize the result produced by the outermost `buildBlock` call for top-level function bodies.  It is only necessary if the DSL wants to distinguish `Component` types from `Return` types, e.g. if it wants builders to internally traffic in some type that it doesn't really want to expose to clients.  If it isn't declared, the result of the outermost `buildBlock` will be used instead.
 
 * `buildDo(_ components: Component...) -> Component` is used to build combined results for `do` statement bodies, if special treatment is wanted for them.  If it isn't declared, `buildBlock` will be used instead.
 
@@ -318,23 +318,13 @@ The function builder transform is a recursive transformation operating on statem
 
 Within a statement block, the individual statements are separately transformed into sequences of statements which are then concatenated. Each such sequence may optionally produce a single *partial result*, which is an expression (typically a reference to a local variable) which can be used later in the block.
 
-After the transformation has been applied to all the statements, an expression is generated to form a *combined result* by calling the appropriate sequence function-building method, with all the partial results as unlabelled arguments:
-
-* if the statement block is the body of a `do` statement, and the function builder type declares a `buildDo` function-building method, `buildDo` is called;
-
-* if the statement block is the top-level body of a function, and the function builder type declares a `buildFunction` function-building method, `buildFunction` is called;
-
-* otherwise, `buildBlock` is called.
+After the transformation has been applied to all the statements, a call to `buildBlock` is generated to form a *combined result*, with all the partial results as unlabelled arguments.
 
 If the statement block is the top-level body of the function being transformed, the final statement in the transformed block is a `return` with the combined result expression as its operand.  Otherwise, the combined result is propagated outwards, typically by assigning it (possibly after a transformation) to a local variable in the enclosing block; the exact rule is specified in the section for the enclosing statement below.
 
 #### Declaration statements
 
-Local declarations are left alone by the transformation.
-
-#### Assignments
-
-An expression statement which performs an assignment is left alone by the transformation.  An expression statement performs an assignment if (ignoring parentheses and any operators in the `try` family) its top-level form is a use of an assignment operator (either the `=` simple-assignment operator or a binary operator with the `assignment` attribute).
+Local declarations are left alone by the transformation. This allows developers to factor out subexpressions freely to clarify their code, without affecting the function builder transformation.
 
 #### Expression statements
 
@@ -374,6 +364,14 @@ static func buildExpression(_ node: HTMLNode) -> [HTML] {
 static func buildExpression(_ value: HTML) -> [HTML] {
   return [value]
 }
+```
+
+#### Assignments
+
+An expression statement which performs an assignment is treated in the same manner as all other expression statements, although it will always return `()`. A function builder could choose to handle `()`-returning expression statements specially by overloading `buildExpression`, e.g.,
+
+```swift
+static func buildExpression(_: ()) -> Component { ... }
 ```
 
 #### Selection statements
@@ -464,7 +462,7 @@ The transformation then proceeds as follows:
 
 #### Imperative control-flow statements
 
-`return` statements are ill-formed when they appear within a transformed function.  However, note that the transformation is suppressed in closures that contain a `return` statement, so this rule is only applicable in `func`s and getters that explicitly provide the attribute.  Some cases of `return` may be supported in the future.
+`return` statements are ill-formed when they appear within a transformed function.  However, note that the transformation is suppressed in closures that contain a `return` statement, so this rule is only applicable in `func`s and getters that explicitly provide the attribute.
 
 `break` and `continue` statements are ill-formed when they appear within a transformed function.  These statements may be supported in some situations in the future, for example by treating all potentially-skipped partial results as optional.
 
@@ -476,7 +474,7 @@ The transformation then proceeds as follows:
 
 `defer` statements are left alone by the transformation.  It is ill-formed if the deferred block produces a result.
 
-`do` statements with `catch` blocks are provisionally ill-formed when encountered in transformed functions unless none of the nested blocks produce a result.  Some cases of these statements may be supported in the future.
+`do` statements with `catch` blocks are ill-formed when encountered in transformed functions.
 
 #### `do` statements
 
@@ -484,9 +482,22 @@ The transformation then proceeds as follows:
 
 * A unique variable `v` is declared immediately prior to the `do`.
 
-* The transformation is applied recursively to the child statement block except that, if the function builder type declares the `buildDo`  function-building method, the transformation calls that instead of `buildBlock`.
+* The transformation is applied recursively to the child statement block except that the transformation calls `buildDo` instead of `buildBlock`.
 
 * The combined result is assigned to `v` as the final statement in the child block, and `v` becomes a partial result of the containing block.
+
+If no `buildDo` is provided, `do` statements are not supported in the body.
+
+#### `for`..`in` loops
+
+`for`...`in` statements execute each of the iterations of the loop, collecting the partial results from all iterations into an array. That array is then passed into `buildArray`. Specifically:
+
+* A unique variable `v` is declared immediately prior to the `do`.
+* A unique variable `vArray` is declared immediately prior to the `do`, is given `Array` type (with as-yet-undetermined element type), and is initialized to `[]`.
+* The transformation is applied recursively to the body of the `for`..`in` loop, except that the partial result produced by the body is appended to the array via a call to `vArray.append`.
+* The result of calling `buildArray(vArray)` is assigned to `v`, and `v` becomes a partial result of the containing block.
+
+If no `buildArray` is provided, `for`..`in` loops are not supported in the body.
 
 ### **Example**
 
@@ -617,7 +628,7 @@ div {
 }
 ```
 
-Finally, we finish this block.  This is the top-level body of the function, but the function builder type doesn't declare `buildFunction`, so we just fall back on using `buildBlock` again:
+Finally, we finish this block.  This is the top-level body of the function, but the function builder type doesn't declare `buildFinalResult`, so we just fall back on using `buildBlock` again:
 
 ```swift
 div {
@@ -656,10 +667,13 @@ Because function builders are essentially a kind of macro system, where the deta
 
 ## Future Directions
 
+There are a number of future directions that could be layered on top of this proposal without compromising its basic design. Several of them are covered here.
+
+### Custom Attributes on Statements
 If Swift supported custom attributes on statements, those attributes could be evaluated at runtime and then passed to the appropriate function-building method.  For example, consider code like this:
 
 ```
- @`Group("Features")
+@Group("Features")
 do {
   ...
 }`
@@ -667,16 +681,13 @@ do {
 
 This `Group` value could be passed to `buildDo` along with the partial results, which would create interesting new avenues for DSL extension.
 
-Certain statements which are currently banned in transformed functions could be supported in the future:
+### Additional Control Flow Statements
+The set of statements that are permitted within a transformed function are intentionally limited to those that are "strictly structural", and could reasonably be thought of as being part of a single, functional expression. However, one could go beyond this model to accept additional statements in transformed function:
 
-* Iteration statements could be handled by capturing the result of each iteration in an array.  For `for`, this effectively turns the loop into a `map` on the iterated-over collection.  Some DSLs might prefer to evaluate this `map` lazily, since this is more efficient e.g. for the rows of a table view; that wouldn't be reasonable to do by default because of the divergence from normal language semantics, but it might be reasonable to request with a custom attribute on the `for` statement.
 * Local control flow statements that aren't “strictly structural”, like `break`, `continue`, and `do/catch`, could be handled by treating subsequent partial results as optional, as if they appeared within an `if`.
-* `return` could be allowed with no argument, allowing an early exit from the entire function; all currently-collected partial results would be returned and all subsequent partial results would be treated as optional, as with `break`.
-* `defer` could be allowed to produce results.
+* Iteration statements other than `for`..`in` (i.e., `while` and `repeat`..`while`) could be supported via `buildArray`.
 
-
-More kinds of expressions could be recognized as not producing a result.  In particular, expressions which produce V`oid` should probably be implicitly ignored.  Currently they must be explicitly ignored, e.g. `_ = assert(...)`.
-
+### Local Bindings
 Function builders have no ability to interact with local bindings and are therefore substantially less general than what you can do with, say, monads in Haskell.  Some specific monad-like use cases could be supported by allowing function builders to carry local state, making function-builder methods into instance calls on a value initialized (somehow) at the start of the function.  Others are harder to imagine how they could be integrated into the model.
 
 `buildBlock` is somewhat inconvenient (and inefficient) for the case of just building up an array of results across different nesting levels.  It might be worth adding an alternative set of function-building methods that are more targeted to this pattern.
@@ -786,4 +797,4 @@ If we take as given that the feature should adapt function-body syntax, it is re
 
 Therefore, we are proposing a model where the need for a function builder transformation can be inferred from type context, which is somewhat more “magical” than Swift generally prefers but also allows very lightweight-feeling DSLs, with the hope that the guidelines we've laid out in this proposal will help to limit abuse.
 
-The function-building methods in this proposal have been deliberately chosen to cover the different situations in which results can be produced rather than to try to closely match the different source structures that can give rise to these situations.  For example, there is a `buildOptional` that works with an optional result, which might be optional for many different reasons, rather than a `buildIf` that takes a condition and the result of applying the transformation to the controlled block of the `if`.  The latter would more closely resemble the rules of an arbitrary term rewriter, but it is not be possible to come up with a finite set of such rules that could be soundly applied to an arbitrary function in Swift.  For example, there would be no way to to apply that `buildIf` to an `if let` condition: for one, the condition isn't just a boolean expression, but more importantly, the controlled block cannot be evaluated before the condition has been (uniquely and successfully) evaluated to bind the `let` variable.  We could perhaps add a `buildIfLet`  to handle this, but the same idea could never be extended to allow a  `buildIfCase` or `buildReturn`.  Such things require a true term-rewriting system, which may be desirable but is far beyond the scope of this proposal.
+The function-building methods in this proposal have been deliberately chosen to cover the different situations in which results can be produced rather than to try to closely match the different source structures that can give rise to these situations.  For example, there is a `buildOptional` that works with an optional result, which might be optional for many different reasons, rather than a `buildIf` that takes a condition and the result of applying the transformation to the controlled block of the `if`.  The latter would more closely resemble the rules of an arbitrary term rewriter, but it is not be possible to come up with a finite set of such rules that could be soundly applied to an arbitrary function in Swift.  For example, there would be no way to to apply that `buildIf` to an `if let` condition: for one, the condition isn't just a boolean expression, but more importantly, the controlled block cannot be evaluated before the condition has been (uniquely and successfully) evaluated to bind the `let` variable.  We could perhaps add a `buildIfLet`  to handle this, but the same idea could never be extended to allow a  `buildIfCase` or `buildFinalResult`.  Such things require a true term-rewriting system, which may be desirable but is far beyond the scope of this proposal.
