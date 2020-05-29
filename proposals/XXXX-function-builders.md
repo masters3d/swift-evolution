@@ -657,6 +657,48 @@ div {
 
 This closure has now been completely transformed (except for the nested closures passed to `p`).
 
+## Type inference
+
+### Function builder bodies
+Type inference in function builder bodies follows from the syntactic effects of the function builder transformation.
+For example, when applying the function builder to the following closure:
+
+```swift
+{
+  42
+  3.14159
+}
+```
+
+the function builder transformation produces
+
+```swift
+let v1 = 42
+let v2 = 3.14159
+return Builder.buildBlock(v1, v2)
+```
+
+The types for `v1` and `v2` are determined independently by the normal type inference rules to `Int` and `Double`,
+respectively, then `buildBlock` can operate on both types to produce the final result of the closure.
+However, the type of `buildBlock` cannot have any effect on how the types of `v1` and `v2` are
+computed. For example, if the builder contained a `buildBlock` like the following:
+
+```swift
+func buildBlock<T>(_ a: T, _ b: T) -> T { ... }
+```
+
+Then the call to `buildBlock(v1, v2)` will fail because `Int` and `Double` have different types, even though the integer literal `42` could have been treated as a `Double` if type inference were permitted to propagate information "backward" to affect `v1`.
+
+Note that the first implementation of function builders used a different syntactic transform that *did* allow such backward propagation, e.g.,
+
+```swift
+return Builder.buildBlock(42, 3.14159)  // not proposed; example only
+```
+
+in which case the `42` would be treated as a `Double`. There are several reasons why allowing such "backward" propagation of type information is undesirable for function builders:
+* The type inference model would be different from normal closures or function bodies, which is a divergence that makes the mental model more complicated 
+* Type checker performance with moderate-to-large function builder bodies was unacceptable, because backward propagation introduced exponential behavior. The implementation of [one-way constraints](https://github.com/apple/swift/pull/26661) for function builders (which introduced the current behavior) resolved most reported "expression too complex to be solved in a reasonable time" issues with SwiftUI code.
+
 ## Source compatibility
 
 Function builders are an additive feature which should not effect existing source code.
