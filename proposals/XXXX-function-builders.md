@@ -304,7 +304,7 @@ This is a quick reference for the function-builder methods currently proposed.  
 
 * `buildFinalResult(_ components: Component) -> Return` is used to finalize the result produced by the outermost `buildBlock` call for top-level function bodies.  It is only necessary if the DSL wants to distinguish `Component` types from `Return` types, e.g. if it wants builders to internally traffic in some type that it doesn't really want to expose to clients.  If it isn't declared, the result of the outermost `buildBlock` will be used instead.
 
-* `buildDo(_ components: Component...) -> Component` is used to build combined results for `do` statement bodies, if special treatment is wanted for them.  If it isn't declared, `buildBlock` will be used instead.
+* `buildDo(_ components: Component...) -> Component` is used to build combined results for `do` statement bodies. If it isn't declared, `do` statements are ill-formed.
 
 * `buildOptional(_ component: Component?) -> Component` is used to build a partial result in an enclosing block from the result of an optionally-executed sub-block.  If it isn't declared, optionally-executed sub-blocks are ill-formed.
 
@@ -498,6 +498,10 @@ If no `buildDo` is provided, `do` statements are not supported in the body.
 * The result of calling `buildArray(vArray)` is assigned to `v`, and `v` becomes a partial result of the containing block.
 
 If no `buildArray` is provided, `for`..`in` loops are not supported in the body.
+
+### Compiler Diagnostic Directives
+
+`#warning` and `#error` have no run-time impact and are left unchanged by the function builder transformation.
 
 ### **Example**
 
