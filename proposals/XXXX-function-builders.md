@@ -669,6 +669,22 @@ Because function builders are essentially a kind of macro system, where the deta
 
 There are a number of future directions that could be layered on top of this proposal without compromising its basic design. Several of them are covered here.
 
+### Additional Control Flow Statements
+The set of statements that are permitted within a transformed function are intentionally limited to those that are "strictly structural", and could reasonably be thought of as being part of a single, functional expression. However, one could go beyond this model to accept additional statements in a transformed function:
+
+* Local control flow statements that aren't “strictly structural”, like `break`, `continue`, and `do/catch`, could be handled by treating subsequent partial results as optional, as if they appeared within an `if`.
+* Iteration statements other than `for`..`in` (i.e., `while` and `repeat`..`while`) could be supported via `buildArray`.
+
+Support for additional control-flow statements might weaken the declarative nature of function builders, but would expand their
+expressivity.
+
+### Local Bindings
+Function builders have no ability to interact with local bindings and are therefore substantially less general than what you can do with, say, monads in Haskell.  Some specific monad-like use cases could be supported by allowing function builders to carry local state, making function-builder methods into instance calls on a value initialized (somehow) at the start of the function.  Others are harder to imagine how they could be integrated into the model.
+
+`buildBlock` is somewhat inconvenient (and inefficient) for the case of just building up an array of results across different nesting levels.  It might be worth adding an alternative set of function-building methods that are more targeted to this pattern.
+
+It is common for DSLs to want to introduce shorthands which might not be unreasonable to introduce into the global scope.  For example, `p` might be a reasonable name in the context of our `HTMLBuilder` DSL, but actually introducing a global function named `p` just for DSL use is quite unfortunate.  Contextual lookups like `.p` will generally not work at the top level in DSLs because they will be interpreted as continuations of the previous statement.  It would be good if there was some way for the DSL to affect lexical lookup within transformed functions (although this might be unfortunate for features like code-completion and diagnostics).
+
 ### Custom Attributes on Statements
 If Swift supported custom attributes on statements, those attributes could be evaluated at runtime and then passed to the appropriate function-building method.  For example, consider code like this:
 
@@ -680,20 +696,6 @@ do {
 ```
 
 This `Group` value could be passed to `buildDo` along with the partial results, which would create interesting new avenues for DSL extension.
-
-### Additional Control Flow Statements
-The set of statements that are permitted within a transformed function are intentionally limited to those that are "strictly structural", and could reasonably be thought of as being part of a single, functional expression. However, one could go beyond this model to accept additional statements in transformed function:
-
-* Local control flow statements that aren't “strictly structural”, like `break`, `continue`, and `do/catch`, could be handled by treating subsequent partial results as optional, as if they appeared within an `if`.
-* Iteration statements other than `for`..`in` (i.e., `while` and `repeat`..`while`) could be supported via `buildArray`.
-
-### Local Bindings
-Function builders have no ability to interact with local bindings and are therefore substantially less general than what you can do with, say, monads in Haskell.  Some specific monad-like use cases could be supported by allowing function builders to carry local state, making function-builder methods into instance calls on a value initialized (somehow) at the start of the function.  Others are harder to imagine how they could be integrated into the model.
-
-`buildBlock` is somewhat inconvenient (and inefficient) for the case of just building up an array of results across different nesting levels.  It might be worth adding an alternative set of function-building methods that are more targeted to this pattern.
-
-It is common for DSLs to want to introduce shorthands which might not be unreasonable to introduce into the global scope.  For example, `p` might be a reasonable name in the context of our `HTMLBuilder` DSL, but actually introducing a global function named `p` just for DSL use is quite unfortunate.  Contextual lookups like `.p` will generally not work at the top level in DSLs because they will be interpreted as continuations of the previous statement.  It would be good if there was some way for the DSL to affect lexical lookup within transformed functions (although this might be unfortunate for features like code-completion and diagnostics).
-
 
 ## Alternatives considered
 
