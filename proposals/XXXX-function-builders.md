@@ -286,7 +286,7 @@ In addition, to be practically useful, it must supply a sufficient set of functi
 
 ### Function builder attributes
 
-A function builder type can be used as an attribute in two different syntactic positions. The first position is on a `func`, `var`, or `subscript` declaration.  For the `var` and `subscript`, the declaration must define a getter, and the attribute is treated as if it were an attribute on that getter.  The `func`, `var`, or `subscript` may not be a protocol requirement or any other sort of declaration which does not define an implementation.  A function builder attribute used in this way causes the function builder transform to be applied to the body of the function; it is not considered part of the interface of the function and does not affect its ABI.
+A function builder type can be used as an attribute in two different syntactic positions. The first position is on a `func`, `var`, or `subscript` declaration.  For the `var` and `subscript`, the declaration must define a getter, and the attribute is treated as if it were an attribute on that getter. A function builder attribute used in this way causes the function builder transform to be applied to the body of the function; it is not considered part of the interface of the function and does not affect its ABI.
 
 A function builder type can also be used as an attribute on a parameter of function type, including on parameters of protocol requirements. A function builder attribute used in this way causes the function builder transform to be applied to the body of any explicit closures that are passed as the corresponding argument, unless the closure contains a `return` statement.  This is considered part of the interface of the function and can affect source compatibility, although it does not affect its ABI.
 
@@ -689,7 +689,7 @@ func buildBlock<T>(_ a: T, _ b: T) -> T { ... }
 
 Then the call to `buildBlock(v1, v2)` will fail because `Int` and `Double` have different types, even though the integer literal `42` could have been treated as a `Double` if type inference were permitted to propagate information "backward" to affect `v1`.
 
-Note that the first implementation of function builders used a different syntactic transform that *did* allow such backward propagation, e.g.,
+Note that the first implementation of function builders in Swift 5.1 used a different syntactic transform that *did* allow such backward propagation, e.g.,
 
 ```swift
 return Builder.buildBlock(42, 3.14159)  // not proposed; example only
@@ -698,6 +698,46 @@ return Builder.buildBlock(42, 3.14159)  // not proposed; example only
 in which case the `42` would be treated as a `Double`. There are several reasons why allowing such "backward" propagation of type information is undesirable for function builders:
 * The type inference model would be different from normal closures or function bodies, which is a divergence that makes the mental model more complicated 
 * Type checker performance with moderate-to-large function builder bodies was unacceptable, because backward propagation introduced exponential behavior. The implementation of [one-way constraints](https://github.com/apple/swift/pull/26661) for function builders (which introduced the current behavior) resolved most reported "expression too complex to be solved in a reasonable time" issues with SwiftUI code.
+
+### Inferring function builders from protocol requirements
+
+Most function builder transformations are applied implicitly, without the client of the API writing the name of the function builder. For example, given the following API:
+
+```swift
+func p(@HTMLBuilder makeChildren: () -> [HTML]) -> HTMLNode { ... }
+```
+
+The function builder `HTMLBuilder` is applied at each call site, implicitly, when the closure argument is matched to the parameter that has a function builder attribute:
+
+```swift
+p {
+  "Call me Ishmael. Some years ago"
+}
+```
+
+Most function declarations are standalone, so only the explicit function builder annotation can enable the transformation. However, function builder DSLs like SwiftUI tend to have a central protocol to which many different types conform. A typical SwiftUI view might look something like this:
+
+```swift
+struct ContentView: View {
+  @ViewBuilder var body: some View {
+    Image(named: "swift")
+    Text("Hello, Swift!")
+  }
+}
+```
+
+Nearly every `body` for a SwiftUI view can use `@ViewBuilder`, because `body` defines a `View`, and those are best built with a `ViewBuilder`. To eliminate the boilerplate from writing `@ViewBuilder` on each, one can annotate `body` with `@ViewBuilder` in the `View` protocol itself:
+
+```swift
+protocol View {
+  associatedtype Body: View
+  @ViewBuilder var body: Body { get }
+}
+```
+
+When a `View`-conforming type defines it's `body`, the `@ViewBuilder` attribute is inferred from the protocol requirement it satisfies, implicitly applying the function builder transform. This inferred occurs unless:
+* The function or property already has a function builder attribute explicitly written on it, or
+* The body of the function or property getter contains an explicit `return` statement.
 
 ## Source compatibility
 
