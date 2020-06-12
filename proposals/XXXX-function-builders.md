@@ -472,7 +472,7 @@ The transformation then proceeds as follows:
 
 `throw` statements are left alone by the transformation.
 
-`defer` statements are left alone by the transformation.  It is ill-formed if the deferred block produces a result.
+`defer` statements are ill-formed when encountered in transformed functions.
 
 `do` statements with `catch` blocks are ill-formed when encountered in transformed functions.
 
