@@ -733,6 +733,75 @@ Because function builders are essentially a kind of macro system, where the deta
 
 There are a number of future directions that could be layered on top of this proposal without compromising its basic design. Several of them are covered here.
 
+### Function builders and the implicit memberwise initializer
+
+Function builders are designed with composition in mind, and it is common to have a number of small structures that use function builders to describe their child content. For example, a custom VStack in SwiftUI might look like this:
+
+```swift
+struct CustomVStack<Content: View>: View {
+    let content: () -> Content
+
+    var body: some View {
+        VStack {
+            // custom stuff here
+            content()
+        }
+    }
+}
+```
+
+However, this custom VStack doesn't work with function builder syntax without writing an initializer to introduce the `@ViewBuilder` attribute:
+
+```swift
+init(@ViewBuilder content: @escaping () -> Content) {
+    self.content = content
+}
+```
+
+We could permit the stored property itself to be specified with a function builder. This would have the effect of introducing the function builder to the corresponding parameter of the implicit memberwise initializer. In other words, changing the `CustomVStack` definition to the following:
+
+```swift
+struct CustomVStack<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        VStack {
+            // custom stuff here
+            content()
+        }
+    }
+}
+```
+
+would implicitly produce the initializer shown above.
+
+One could take this a step further, to handle cases where the function builder closure is immediately called, by allowing a stored property of non-closure type to be annotated with a function builder. In such cases, the implicit memberwise initializer will call the closure itself. For example, given: 
+
+```swift
+struct CustomHStack<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        HStack {
+            // custom stuff here
+            content
+        }
+    }
+}
+```
+
+the implicit memberwise initializer would have the following definition:
+
+```swift
+init(@ViewBuilder content: @escaping () -> Content) {
+    self.content = content()
+}
+```
+
+The first and second cases can be distinguished using the notion of [structural resemblance to a function type](https://github.com/apple/swift-evolution/blob/master/proposals/0286-forward-scan-trailing-closures.md#structural-resemblance-to-a-function-type) established by [SE-0286](https://github.com/apple/swift-evolution/blob/master/proposals/0286-forward-scan-trailing-closures.md).
+
+This "future direction" was reported as [SR-13188](https://bugs.swift.org/browse/SR-13188), and the examples are pulled from there.
+
 ### Additional Control Flow Statements
 The set of statements that are permitted within a transformed function are intentionally limited to those that are "strictly structural", and could reasonably be thought of as being part of a single, functional expression. However, one could go beyond this model to accept additional statements in a transformed function:
 
