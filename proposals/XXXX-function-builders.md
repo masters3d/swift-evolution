@@ -1,4 +1,4 @@
-# Function builders (draft proposal)
+# Function builders
 
 * Proposal: [SE-XXXX](XXXX-function-builders.md)
 * Authors: [John McCall](https://github.com/rjmccall), [Doug Gregor](http://github.com/DougGregor)
@@ -32,40 +32,15 @@ func build() -> (Int, Int, Int) {
 
 In this example, all the statements are expressions and so produce a single value apiece.  Other statements, like `let`, `if`, and `while`, are variously either handled differently or prohibited; see the proposal details below.
 
-In effect, this proposal allows the creation of a new class of embedded domain-specific languages in Swift by applying *builder transformations* to the statements of a function.  The power of these builder transformations is intentionally limited so that the result preserves the dynamic semantics of the original code: the original statements of the function are still executed as normal, it's just that values which would be ignored under normal semantics are in fact collected into the result.  The use of an *ad hoc* protocol for the builder transformation leaves room for a wide variety of future extension, whether to support new kinds of statements or to customize the details of the transformation. A similar builder pattern was used successfully for string interpolation in [SE-0228](https://github.com/apple/swift-evolution/blob/master/proposals/0228-fix-expressiblebystringinterpolation.md).
+In effect, this proposal allows the creation of a new class of embedded domain-specific languages in Swift by applying *builder transformations* to the statements of a function.  The power of these builder transformations is intentionally limited so that the result preserves the dynamic semantics of the original code: the original statements of the function are still executed as normal, it's just that values which would be ignored under normal semantics are in fact collected into the result.  The use of an *ad hoc* protocol for the builder transformation leaves room for a wide variety of future extension, whether to support new kinds of statements or to customize the details of the transformation. A similar builder pattern was used successfully for string interpolation in [SE-0228](https://github.com/apple/swift-evolution/blob/master/proposals/0228-fix-expressiblebystringinterpolation.md). 
 
-In the next section, we will discuss the motivation for the feature.  We will then develop requirements for the solution and lay out the detailed proposal. Finally, we will discuss alternative approaches.
-
+Function builders have been a "hidden" feature since Swift 5.1, and the implementation (and its capabilities) have evolved since then. They are used most famously by [SwiftUI](https://developer.apple.com/xcode/swiftui/) to declaratively describe user interfaces, but others have also experimented with [building Swift syntax trees](https://swiftpack.co/package/akkyie/SyntaxBuilder), [testing](https://www.dotconferences.com/2020/02/kaya-thomas-swift-techniques-for-testing), and [an alternative SwiftPM manifest format](https://forums.swift.org/t/declarative-package-description-for-swiftpm-using-function-builders/28699). There's a GitHub repository dedicated to [awesome function builders](https://github.com/carson-katri/awesome-function-builders) with more applications.
 
 ## Motivation
 
-### Domain-specific languages
+It's always been a core goal of Swift to allow the creation of great libraries. A lot of what makes a library great is its interface, and Swift is designed with rich affordances for building expressive, type-safe interfaces for libraries. In some cases, a library's interface is distinct enough and rich enough to form its own miniature language within Swift. We refer to this as a *Domain Specific Language* (DSL), because it let's you better describe solutions within a particular problem domain.
 
-It's always been a core goal of Swift to allow the creation of great libraries. A lot of what makes a library great is its interface.  Any library is going to require a certain amount of work to learn to use well.  With a well-designed library, that work should build on and reinforce the knowledge that its users already have from using other libraries and the core language.  With a poorly-designed library, that work will feel like memorizing a long list of strange new rules.
-
-The difference hinges on a lot of different choices made by the library designers — which types to expose, what names to give to functions, and so on.  Of these choices, one of the most important is which language features to use to expose the interface.  As an example, a graph-like library could allow a value `a` to be "attached" to another value `b` in any number of ways:
-
-* `a.attachment = b` (a property)
-* `a.attach(b)` (a method)
-* `graph.attach(a, b)` (a method on a third value)
-* `attach(a, b)` (a global function)
-* `a += b` (overloading an existing binary operator)
-* `a <-> b` (defining a custom binary operator)
-* some more esoteric or unexpected feature
-
-Each of these options has advantages and disadvantages that make it more or less appropriate in different situations.  If "attaching" values is only an occasional task for clients, or if that task will often be isolated in code that's doing other things which may not even involve the library at all, then it's best to stick with typical language constructs like properties and function calls so that readers won't need to "code-switch" and recognize the unusual interface of this one library.  But if "attaching" values is dense in code, and especially if it tends to appear in recognizable idioms, then it's well worth considering something like a custom operator.  This line of reasoning leads us towards the general language-design concept of a *domain-specific language* (*DSL*).
-
-The term "DSL" covers a wide range of technical approaches, but in general, a DSL is a pattern of code that is "unusual" in a way that makes it better for solving a particular kind of problem.  For example, SQL makes it easy to work with relational databases, hiding complexities like storage patterns and in-memory representations; this is an example of an *independent* DSL, which defines a totally separate programming language with its own syntax, semantics, and tooling.  Independent DSLs have some advantages, but they also have significant drawbacks when used as part of a larger program; we are not proposing anything like this.  Instead, we're interested in *embedded* DSLs: libraries that superficially use the syntax of a language, but take advantage of the language's facilities for manipulating or generating code (e.g. macro and template systems) to transform that code to have an atypical meaning.  This may seem frightening, but designed well, an embedded DSL can significantly improve the fluency of code that uses it by removing boilerplate (tedious, error-prone, and inflexible once written) and papering over details that are usually unimportant.
-
-What makes an embedded DSL well-designed? The basic rule is that the DSL should be more careful — and more explicitly recognizable — the more that its transformed semantics diverge from the ordinary behavior of the original source. For example, the ordinary behavior of a block of statements is that the statements are evaluated, one after another, until the block exits. A transformation which maintains those semantics but logged the result of each statement doesn't need much fanfare. A transformation which rewrites the block to run statements in parallel requires much more care. The more atypical the DSL is, the more the designer should be thinking about the following:
-
-* The DSL should be *well-justified by its expected use*.  The point of a DSL is that its rules are somewhat different; those differences will need to be specifically learned by the library's clients, which is asking quite a lot.  A DSL which only improves a handful of lines in a typical client codebase is unlikely to be worth the cognitive burden for its clients.
-
-* The DSL should be *easily recognized at the use site* if its behavior is unusual.  For example, suppose we wanted to write a DSL that executed the statements of a block in parallel. (Please note that such a DSL would not be possible to write with the feature proposed here.)  It would be very poor library design for an arbitrary function to casually apply such semantics to a function passed to it. A more appropriate design for such a DSL would be for there to be a single, well-known function that triggered the parallel interpretation for the argument block, e.g. something like `parallel { ... }`.
-
-### Declaring list and tree structures
-
-This proposal does not aim to enable all kinds of embedded DSL in Swift. It is focused on one specific class of problem that can be significantly improved with the use of a DSL: creating lists and trees of (typically) heterogenous data from regular patterns. This is a common need across a variety of different domains, including generating structured data (e.g. XML or JSON), UI view hierarchies (notably including Apple's SwiftUI framework, which has deployed a prototype version of this feature), and similar use cases.  In this proposal, we will be primarily working with code which generates an HTML DOM hierarchy, somewhat like a web templating language except in code; credit goes to Harlan Haskins for this example.
+Function builders target a specific kind of interface that involves the declaration of list and tree structures, which are useful in many problem domains, including generating structured data (e.g. XML or JSON), UI view hierarchies (notably including Apple's SwiftUI framework, mentioned above), and similar use cases.  In this proposal, we will be primarily working with code which generates an HTML DOM hierarchy, somewhat like a web templating language except in code; credit goes to Harlan Haskins for this example.
 
 Suppose that you have a program, part of which generates HTML.  You could, of course, directly generate a `String`, but that's error-prone (you have to make sure you're handling escapes and closing tags correctly throughout your code) and would make it hard to structurally process the HTML before sending it out.  An alternative approach is to generate a DOM-like representation of the HTML and then render it to a `String` as a separate pass:
 
@@ -114,23 +89,23 @@ To make it easier to build these HTML hierarchies, we can define a bunch of conv
 
 ```swift
 func body(_ children: [HTML]) -> HTMLNode { ... }
-func div(_ children: [HTML]) -> HTMLNode { ... }
-func p(_ children: [HTML]) -> HTMLNode { ... }
-func h1(_ text: String) -> HTMLNode { ... }
+func division(_ children: [HTML]) -> HTMLNode { ... }
+func paragraph(_ children: [HTML]) -> HTMLNode { ... }
+func header1(_ text: String) -> HTMLNode { ... }
 ```
 
 Unfortunately, even with these helper functions, it's still pretty awkward to actually produce a complex hierarchy because of all the lists of children:
 
 ```swift
 return body([
-  div([
-    h1("Chapter 1. Loomings."),
-    p(["Call me Ishmael. Some years ago"]),
-    p(["There is now your insular city"])
+  division([
+    header1("Chapter 1. Loomings."),
+    paragraph(["Call me Ishmael. Some years ago"]),
+    paragraph(["There is now your insular city"])
   ]),
-  div([
-    h1("Chapter 2. The Carpet-Bag."),
-    p(["I stuffed a shirt or two"])
+  division([
+    header1("Chapter 2. The Carpet-Bag."),
+    paragraph(["I stuffed a shirt or two"])
   ])
 ])
 ```
@@ -142,9 +117,9 @@ The second problem is that, because we're using array literals for the children,
 The biggest problem, though, is that it's awkward to change the structure of this hierarchy.  That's fine if our hierarchy is just the static contents of *Moby Dick*, but in reality, we're probably generating HTML that should vary significantly based on dynamic information.  For example, if we wanted to allow chapter titles to be turned off in the output, we'd have to restructure that part of the code like this:
 
 ```swift
-div((useChapterTitles ? [h1("Chapter 1. Loomings.")] : []) +
-    [p(["Call me Ishmael. Some years ago"]),
-     p(["There is now your insular city"])])
+division((useChapterTitles ? [header1("Chapter 1. Loomings.")] : []) +
+    [paragraph(["Call me Ishmael. Some years ago"]),
+     paragraph(["There is now your insular city"])])
 ```
 
 It's also harder to use good coding practices within this hierarchy. For example, suppose there's a common string we want to use many times, and so we want to create a variable for it:
@@ -152,9 +127,9 @@ It's also harder to use good coding practices within this hierarchy. For example
 ```swift
 let chapter = spellOutChapter ? "Chapter " : ""
   ...
-h1(chapter + "1. Loomings.")
+header1(chapter + "1. Loomings.")
   ...
-h1(chapter + "2. The Carpet-Bag.")
+header1(chapter + "2. The Carpet-Bag.")
 ```
 
 Most programmers would advise declaring this variable in as narrow a scope as possible and as close as possible to where it's going to be used.  But because the entire hierarchy is an expression, and there's no easy to declare variables within expressions, every variable like this has to be declared above the entire hierarchy.  (Now, it's true that there's a trick for declaring locals within expressions: you can start a closure, which gives you a local scope that you can use to declare whatever you want, and then immediately call it. But this is awkward in its own way and significantly adds to the punctuation problem.)
@@ -164,14 +139,14 @@ Some of these problems would be solved, at least in part, if the hierarchy was b
 ```swift
 let chapter = spellOutChapter ? "Chapter " : ""
 
-let d1header = useChapterTitles ? [h1(chapter + "1. Loomings.")] : []
-let d1p1 = p(["Call me Ishmael. Some years ago"])
-let d1p2 = p(["There is now your insular city"])
-let d1 = div(d1header + [d1p1, d1p2])
+let d1header = useChapterTitles ? [header1(chapter + "1. Loomings.")] : []
+let d1p1 = paragraph(["Call me Ishmael. Some years ago"])
+let d1p2 = paragraph(["There is now your insular city"])
+let d1 = division(d1header + [d1p1, d1p2])
 
-let d2header = useChapterTitles ? [h1(chapter + "2. The Carpet-Bag.")] : []
-let d2p1 = p(["I stuffed a shirt or two"])
-let d2 = div(d2header + [d2p1])
+let d2header = useChapterTitles ? [header1(chapter + "2. The Carpet-Bag.")] : []
+let d2p1 = paragraph(["I stuffed a shirt or two"])
+let d2 = division(d2header + [d2p1])
 
 return body([d1, d2])
 ```
@@ -184,81 +159,34 @@ What we really want is a compromise between these two approaches:
 
 * We want the explicit recursive structure and implicit data flow that comes from building things up with expression operands.
 
-This suggests a straightforward resolution: allow certain blocks of code to have implicit data flow out of the block and into the context which entered the block.  Let's put details aside for a moment and let our imaginations run wild.  The goal here is to allow this node hierarchy to be declared something like this:
+This suggests a straightforward resolution: allow certain blocks of code to have implicit data flow out of the block and into the context which entered the block. The goal here is to allow this node hierarchy to be declared something like this:
 
 ```swift
 return body {
   let chapter = spellOutChapter ? "Chapter " : ""
-  div {
+  division {
     if useChapterTitles {
-      h1(chapter + "1. Loomings.")
+      header1(chapter + "1. Loomings.")
     }
-    p {
+    paragraph {
       "Call me Ishmael. Some years ago"
     }
-    p {
+    paragraph {
       "There is now your insular city"
     }
   }
-  div {
+  division {
     if useChapterTitles {
-      h1(chapter + "2. The Carpet-Bag.")
+      header1(chapter + "2. The Carpet-Bag.")
     }
-    p {
+    paragraph {
       "I stuffed a shirt or two"
     }
   }
 }
 ```
 
-Suppose this was possible.  Is this a good language design?  Is this a good use of an embedded DSL?
-
-
-### Evaluating DSLs
-
-Earlier, we established three core considerations for answering questions like the above:
-
-* First, how divergent are the semantics of this DSL?  At a glance, without having yet developed a detailed technical design for it, it certainly looks as though this DSL ought to be able to follow the normal type-checking, control-flow, and evaluation rules of Swift.  The only thing that we'd expect to be different is that a few values which would normally be ignored will instead need to be captured as the children of their corresponding nodes. That's not an insignificant change, but it's close enough that a programmer who fails to recognize the DSL right away probably won't be too surprised by the behavior.
-
-* Second, how well-justified is this DSL by its use sites?  Does it "pay off" for programmers to learn it in order to use this HTML library?  In this case it probably does: it's likely that there will be a substantial amount of HTML-producing code at each use site that will be improved by the DSL.
-
-* Third, how recognizable is the DSL from the use site?  Or, balancing this with the divergence consideration above, What's the expected harm introduced by the DSL for an unsuspecting programmer who needs to understand a use site? In this case, it seems likely that a programmer would recognize that something strange is happening from the large number of statements which normally would have no purpose.  Furthermore, if they're at all familiar with common HTML tags, they're likely to immediately grasp *what* the code must be doing even if they don't understand *how* it's doing it.  In other words, the code in the DSL is quite visually distinctive, as well as fairly suggestive of its behavior.  The expected harm is low.
-
-On balance, then, this HTML DSL seems like good design.
-
-Now, of course, this proposal is not proposing an HTML DSL; it's proposing the language feature that enables things like it to be created.  We've been working through this exercise with the HTML DSL for three reasons:
-
-* We believe it demonstrates the value of enabling this class of DSL and therefore helps to justify the function-builder feature that we're proposing.
-
-* We're aware that DSL-enabling features like this can be used excessively or inappropriately in ways that damage the ecosystem of the language. Therefore, we do think it's important to provide some guidelines for their appropriate use.  Almost as importantly, we want to reassure the community that those guidelines both exist and can be enforced by community pressure. Having community consensus around these principles is part of how we keep these features “in check”.
-
-* We believe that the limitations on the DSL feature we're actually proposing will largely only enable DSLs that follow at least two of the guidelines we've laid out:
-
-    * Transformations have very limited power to change the original semantics of the function.  A transformation works via function calls which are generated at specific points in the function.  This does not allow it to re-order, skip, or alter the evaluation of the existing statements (beyond possibly applying a contextual type).  The generated calls can trigger confusing global side effects, but that is a level of concern which Swift has generally chosen to ignore in the design of language features, since the confusion would necessarily be somewhat self-inflicted.  Otherwise, there isn't much the transformation can actually do besides collect and transform the partial results.
-
-    * Transformations that rely on collecting partial results will usually be straightforward to recognize at the use site: as we saw with the HTML DSL, code blocks will contain expressions producing partial results in places where the expression would normally be ignored, and this will usually be visually distinctive.
-
-* Thus, evaluating whether a DSL enabled by this feature is good design will mostly come down to deciding whether it's justified by its impact on typical client code, which is a standard interface-design question.
-
-### Detailed requirements
-
-Earlier, we put details aside; let's consider them now in order to figure out what's necessary in order to enable DSLs like the above.
-
-Consider this code from the example:
-
-```swift
-body {
-  let chapter = spellOutChapter ? "Chapter " : ""
-  div {
-    ...
-  }
-  div {
-    ...
-  }
-}
-```
-
-The DSL has to be embedded into the ordinary language somehow, which means that at least the outermost layer must obey something like ordinary language rules.  Under ordinary language rules, this is a function call to `body `passing a trailing closure.  It makes sense, then, that what we're doing is taking the body of the anonymous function and apply some sort of transformation to it.  This raises a series of separate questions:
+The above has to be embedded into the ordinary language somehow, which means that at least the outermost layer must obey something like ordinary language rules.  Under ordinary language rules, this is a function call to `body `passing a trailing closure.  It makes sense, then, that what we're doing is taking the body of the anonymous function and apply some sort of transformation to it.  This raises a series of separate questions:
 
 1. What it is about this source code that triggers the transformation?  We have chosen not to require an explicit annotation on every closure that needs transformation; see Alternatives Considered for a discussion.  So somehow this must get picked up from the fact that we're passing the closure to `body`.
 
@@ -310,6 +238,8 @@ This is a quick reference for the function-builder methods currently proposed.  
 
 * `buildEither(first: Component) -> Component` and `buildEither(second: Component) -> Component` are used to build partial results in an enclosing block from the result of either of two (or more, via a tree) optionally-executed sub-blocks.  If they aren't both declared, the alternatives will instead be flattened and handled with `buildOptional;` the either-tree approach may be preferable for some DSLs.
 
+* `buildArray(_ components: [Component]) -> Component` is used to build a partial result given the partial results collected from all of the iterations of a loop.
+
 ### The function builder transform
 
 The function builder transform is a recursive transformation operating on statement blocks and the individual statements within them.
@@ -338,14 +268,14 @@ The ability to control how expressions are embedded into partial results is an i
 
 ```swift
 return body([
-  div([
-    h1("Chapter 1. Loomings."),
-    p([.text("Call me Ishmael. Some years ago")]),
-    p([.text("There is now your insular city")])
+  division([
+    header1("Chapter 1. Loomings."),
+    paragraph([.text("Call me Ishmael. Some years ago")]),
+    paragraph([.text("There is now your insular city")])
   ]),
-  div([
-    h1("Chapter 2. The Carpet-Bag."),
-    p([.text("I stuffed a shirt or two")])
+  division([
+    header1("Chapter 2. The Carpet-Bag."),
+    paragraph([.text("I stuffed a shirt or two")])
   ])
 ])
 ```
@@ -564,33 +494,33 @@ Next, we need to adjust our convenience functions to use it:
 func body(@HTMLBuilder makeChildren: () -> [HTML]) -> HTMLNode {
   return HTMLNode(tag: "body", attributes: [:], children: makeChildren())
 }
-func div(@HTMLBuilder makeChildren: () -> [HTML]) -> HTMLNode { ... }
-func p(@HTMLBuilder makeChildren: () -> [HTML]) -> HTMLNode { ... }
+func division(@HTMLBuilder makeChildren: () -> [HTML]) -> HTMLNode { ... }
+func paragraph(@HTMLBuilder makeChildren: () -> [HTML]) -> HTMLNode { ... }
 ```
 
 Now we can go back to the example code and see how the transformation acts on a small part of it:
 
 ```swift
-div {
+division {
   if useChapterTitles {
-    h1(chapter + "1. Loomings.")
+    header1(chapter + "1. Loomings.")
   }
-  p {
+  paragraph {
     "Call me Ishmael. Some years ago"
   }
-  p {
+  paragraph {
     "There is now your insular city"
   }
 }
 ```
 
-The transformation proceeds one-by-one through the top-level statements of the closure body passed to `div`.
+The transformation proceeds one-by-one through the top-level statements of the closure body passed to `division`.
 
 For the `if` statement, we see that there are two cases: the “then” case and the implicit “else” case.  The first produces a result (because it has a non-assignment expression-statement), the second does not.  We apply the recursive transformation to the “then” case:
 
 ```swift
   if useChapterTitles {
-    let v0: [HTML] = HTMLBuilder.buildExpression(h1(chapter + "1. Loomings."))
+    let v0: [HTML] = HTMLBuilder.buildExpression(header1(chapter + "1. Loomings."))
     // combined result is HTMLBuilder.buildBlock(v0)
   }
 ```
@@ -601,7 +531,7 @@ to the same code anyway:
 ```swift
   var v0_opt: [HTML]?
   if useChapterTitles {
-    let v0: [HTML] = HTMLBuilder.buildExpression(h1(chapter + "1. Loomings."))
+    let v0: [HTML] = HTMLBuilder.buildExpression(header1(chapter + "1. Loomings."))
     v0_opt = v0
   }
   let v0_result = HTMLBuilder.buildOptional(v0_opt)
@@ -612,19 +542,19 @@ The two calls to `p` happen to involve arguments which are also transformed bloc
 suffice it to say that they'll also get transformed in time when the type-checker gets around to checking those calls.  These are just non-assignment expression-statements, so we just lift them into the `Component` type:
 
 ```swift
-div {
+division {
   var v0_opt: [HTML]?
   if useChapterTitles {
-    let v0: [HTML] = HTMLBuilder.buildExpression(h1(chapter + "1. Loomings."))
+    let v0: [HTML] = HTMLBuilder.buildExpression(header1(chapter + "1. Loomings."))
     v0_opt = v0
   }
   let v0_result = HTMLBuilder.buildOptional(v0_opt)
   
-  let v1 = HTMLBuilder.buildExpression(p {
+  let v1 = HTMLBuilder.buildExpression(paragraph {
     "Call me Ishmael. Some years ago"
   })
   
-  let v2 = HTMLBuilder.buildExpression(p {
+  let v2 = HTMLBuilder.buildExpression(paragraph {
     "There is now your insular city"
   })
   
@@ -635,19 +565,19 @@ div {
 Finally, we finish this block.  This is the top-level body of the function, but the function builder type doesn't declare `buildFinalResult`, so we just fall back on using `buildBlock` again:
 
 ```swift
-div {
+division {
   var v0_opt: [HTML]?
   if useChapterTitles {
-    let v0: [HTML] = HTMLBuilder.buildExpression(h1(chapter + "1. Loomings."))
+    let v0: [HTML] = HTMLBuilder.buildExpression(header1(chapter + "1. Loomings."))
     v0_opt = v0
   }
   let v0_result = HTMLBuilder.buildOptional(v0_opt)
   
-  let v1 = HTMLBuilder.buildExpression(p {
+  let v1 = HTMLBuilder.buildExpression(paragraph {
     "Call me Ishmael. Some years ago"
   })
   
-  let v2 = HTMLBuilder.buildExpression(p {
+  let v2 = HTMLBuilder.buildExpression(paragraph {
     "There is now your insular city"
   })
   
@@ -704,13 +634,13 @@ in which case the `42` would be treated as a `Double`. There are several reasons
 Most function builder transformations are applied implicitly, without the client of the API writing the name of the function builder. For example, given the following API:
 
 ```swift
-func p(@HTMLBuilder makeChildren: () -> [HTML]) -> HTMLNode { ... }
+func paragraph(@HTMLBuilder makeChildren: () -> [HTML]) -> HTMLNode { ... }
 ```
 
 The function builder `HTMLBuilder` is applied at each call site, implicitly, when the closure argument is matched to the parameter that has a function builder attribute:
 
 ```swift
-p {
+paragraph {
   "Call me Ishmael. Some years ago"
 }
 ```
@@ -790,8 +720,8 @@ There are a number of ways that a similar “structured data” DSL could be emb
 First, children could be written out in as arguments:
 
 ```swift
-div(
-  h1(chapter + "1. Loomings"),
+division(
+  header1(chapter + "1. Loomings"),
   "Call me Ishmael. Some years ago",
   "There is now your insular city"
 )
@@ -816,8 +746,8 @@ This has some substantial disadvantages, many of which are shared with other alt
 Second, children could be written in subscripts, as a sort of “trailing array literal”:
 
 ```swift
-div [
-  h1(chapter + "1. Loomings"),
+division [
+  header1(chapter + "1. Loomings"),
   "Call me Ishmael. Some years ago",
   "There is now your insular city"
 ]
@@ -828,8 +758,8 @@ This has essentially the same disadvantages as call arguments.  The subscript ar
 Third, children could be written in tuple literals that are passed as arguments to calls or subscripts:
 
 ```swift
-div(
-  (h1(chapter + "1. Loomings"),
+division(
+  (header1(chapter + "1. Loomings"),
    "Call me Ishmael. Some years ago",
    "There is now your insular city")
 )
@@ -840,8 +770,8 @@ This has essentially the same disadvantages as call arguments, except that param
 Fourth, children could be written in array literals that are passed as arguments to calls or subscripts:
 
 ```swift
-div([
-  h1(chapter + "1. Loomings"),
+division([
+  header1(chapter + "1. Loomings"),
   "Call me Ishmael. Some years ago",
   "There is now your insular city"
 ])
@@ -859,8 +789,8 @@ This has essentially the same disadvantages as call arguments, except:
 Instead of being provided a list of children, the parent could be given all the children separately:
 
 ```swift
-div()
-  .child(h1(chapter + "1. Loomings"))
+division()
+  .child(header1(chapter + "1. Loomings"))
   .child("Call me Ishmael. Some years ago")
   .child("There is now your insular city")
 ```
