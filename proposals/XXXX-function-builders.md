@@ -236,9 +236,11 @@ This is a quick reference for the function-builder methods currently proposed.  
 
 * `buildOptional(_ component: Component?) -> Component` is used to build a partial result in an enclosing block from the result of an optionally-executed sub-block.  If it isn't declared, optionally-executed sub-blocks are ill-formed.
 
-* `buildEither(first: Component) -> Component` and `buildEither(second: Component) -> Component` are used to build partial results in an enclosing block from the result of either of two (or more, via a tree) optionally-executed sub-blocks.  If they aren't both declared, the alternatives will instead be flattened and handled with `buildOptional;` the either-tree approach may be preferable for some DSLs.
+* `buildEither(first: Component) -> Component` and `buildEither(second: Component) -> Component` are used to build partial results in an enclosing block from the result of either of two (or more, via a tree) optionally-executed sub-blocks.
 
 * `buildArray(_ components: [Component]) -> Component` is used to build a partial result given the partial results collected from all of the iterations of a loop.
+
+* `buildLimitedAvailability(_ component: Component) -> Component` is used to transform the partial result produced by `buildBlock` in a limited available context (such as `if #available`) into one suitable for any context. If not present, the partial result produced from a limited availability context will be the result of `buildBlock`.
 
 ### The function builder transform
 
@@ -433,6 +435,45 @@ If no `buildArray` is provided, `for`..`in` loops are not supported in the body.
 
 `#warning` and `#error` have no run-time impact and are left unchanged by the function builder transformation.
 
+### Availability
+
+Statements that introduce limited available contexts, such as `if #available(...)`, allow use of newer APIs while still making the code backward-deployable to older versions of the libraries. A function builder carries complete type information (such as SwiftUI's [`ViewBuilder`](https://developer.apple.com/documentation/swiftui/viewbuilder)) may need to "erase" type information from a limited availability context using `buildLimitedAvailability`. Here is a SwiftUI example borrowed from [Paul Hudson](https://www.hackingwithswift.com/quick-start/swiftui/how-to-lazy-load-views-using-lazyvstack-and-lazyhstack):
+
+```swift
+@available(macOS 10.15, iOS 13.0)
+struct ContentView: View {
+    var body: some View {
+        ScrollView {
+            if #available(macOS 11.0, iOS 14.0, *) {
+                LazyVStack {
+                    ForEach(1...1000, id: \.self) { value in
+                        Text("Row \(value)")
+                    }
+                }
+            } else {
+                VStack {
+                    ForEach(1...1000, id: \.self) { value in
+                        Text("Row \(value)")
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+`LazyVStack` was introduced in macOS 11/iOS 14.0, but this view is also available on macOS 10.15/iOS 13.0, so it uses `if #available`. SwiftUI carries complete type information throughout the view builder closure, including conditional branches:
+
+```swift
+static func buildEither<TrueContent, FalseContent>(first: TrueContent) -> _ConditionalContent<TrueContent, FalseContent>
+```
+
+This means that the type of the `ScrollView` will refer to `LazyVStack`, even on macOS 10.15/iOS 13.0, which results in a compilation error. `buildLimitedAvailability` provides a way for the function builder to "erase" type information it would normally keep, specifically in these situations:
+
+```swift
+static func buildLimitedAvailability<Content: View>(_ content: Content) -> AnyView { .init(content) }
+```
+
 ### **Example**
 
 Let's return to our earlier example and work out how to define a function-builder DSL for it.  First, we need to define a basic function builder type:
@@ -482,9 +523,16 @@ struct HTMLBuilder {
   static func buildOptional(_ children: Component?) -> Component {
     return children ?? []
   }
+
+  // Handle optionally-executed blocks.
+  static func buildEither(first child: Component) -> Component {
+    return child
+  }
   
-  // We could avoid a small amount of work here with certain if/else patterns
-  // by implementing the buildEither functions, but we'll keep it simple.
+  // Handle optionally-executed blocks.
+  static func buildEither(second child: Component) -> Component {
+    return child
+  }
 }
 ```
 
