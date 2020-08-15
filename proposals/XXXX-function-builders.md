@@ -38,7 +38,7 @@ Function builders have been a "hidden" feature since Swift 5.1, and the implemen
 
 ## Motivation
 
-It's always been a core goal of Swift to allow the creation of great libraries. A lot of what makes a library great is its interface, and Swift is designed with rich affordances for building expressive, type-safe interfaces for libraries. In some cases, a library's interface is distinct enough and rich enough to form its own miniature language within Swift. We refer to this as a *Domain Specific Language* (DSL), because it let's you better describe solutions within a particular problem domain.
+It's always been a core goal of Swift to allow the creation of great libraries. A lot of what makes a library great is its interface, and Swift is designed with rich affordances for building expressive, type-safe interfaces for libraries. In some cases, a library's interface is distinct enough and rich enough to form its own miniature language within Swift. We refer to this as a *Domain Specific Language* (DSL), because it lets you better describe solutions within a particular problem domain.
 
 Function builders target a specific kind of interface that involves the declaration of list and tree structures, which are useful in many problem domains, including generating structured data (e.g. XML or JSON), UI view hierarchies (notably including Apple's SwiftUI framework, mentioned above), and similar use cases.  In this proposal, we will be primarily working with code which generates an HTML DOM hierarchy, somewhat like a web templating language except in code; credit goes to Harlan Haskins for this example.
 
@@ -151,7 +151,7 @@ let d2 = division(d2header + [d2p1])
 return body([d1, d2])
 ```
 
-But in most ways, this is substantially worse.  There's quite a lot of extra code that's made it much more difficult to track what's really going on.  That's especially true with all the explicit data flow, where it can tough to piece together what nodes are children of others; moreover, that code is as tedious to write as it is to read, making it very prone to copy-paste bugs.  Furthermore, the basic structure of the hierarchy used to be clear from the code, and that's been completely lost: all of the nicely-nested calls to node builders have been flattened into one sequence.  Also, while optional children are a common problem for this hierarchy, the actual code to handle them has to be repeated over and over again, leading to boilerplate and bugs.  Overall, this is not a good approach at all.
+But in most ways, this is substantially worse.  There's quite a lot of extra code that's made it much more difficult to track what's really going on.  That's especially true with all the explicit data flow, where it can be tough to piece together what nodes are children of others; moreover, that code is as tedious to write as it is to read, making it very prone to copy-paste bugs.  Furthermore, the basic structure of the hierarchy used to be clear from the code, and that's been completely lost: all of the nicely-nested calls to node builders have been flattened into one sequence.  Also, while optional children are a common problem for this hierarchy, the actual code to handle them has to be repeated over and over again, leading to boilerplate and bugs.  Overall, this is not a good approach at all.
 
 What we really want is a compromise between these two approaches:
 
@@ -325,32 +325,32 @@ if i == 0 {
 The first transformation pattern for selection statements turns each case into its own optional partial result in the enclosing block.  This is a simple transformation which is easy to enable, but it produces more partial results in the enclosing block and therefore may be less efficient to handle at runtime.  Under this pattern, the example code becomes:
 
 ```swift
-var v0opt: String?
-var v1opt: String?
-var v2opt: Tree?
+var vCase0: String?
+var vCase1: String?
+var vCase2: Tree?
 if i == 0 {
-  v0opt = "0"
+  vCase0 = "0"
 } else if i == 1 {
-  v1opt = "1"
+  vCase1 = "1"
 } else {
-  v2opt = generateFibTree(i)
+  vCase2 = generateFibTree(i)
 }
-let v0 = BuilderType.buildOptional(v0opt)
-let v1 = BuilderType.buildOptional(v1opt)
-let v2 = BuilderType.buildOptional(v2opt)
+let v0 = BuilderType.buildOptional(vCase0)
+let v1 = BuilderType.buildOptional(vCase1)
+let v2 = BuilderType.buildOptional(vCase2)
 ```
 
 The second transformation pattern produces a balanced binary tree of injections into a single partial result in the enclosing block. This can be more efficient in some cases, but it's also more work to enable it in the function builder type, and many DSLs won't substantially benefit.  Under this pattern, the example code becomes something like the following:
 
 ```swift
-let v: PartialResult
+let vMerged: PartialResult
 if i == 0 {
-  v = BuilderType.buildEither(first: "0")
+  vMerged = BuilderType.buildEither(first: "0")
 } else if i == 1 {
-  v = BuilderType.buildEither(second:
+  vMerged = BuilderType.buildEither(second:
         BuilderType.buildEither(first: "1"))
 } else {
-  v = BuilderType.buildEither(second:
+  vMerged = BuilderType.buildEither(second:
         BuilderType.buildEither(second: generateFibTree(i)))
 }
 ```
@@ -382,15 +382,15 @@ The transformation then proceeds as follows:
     For example, if the path to the case's leaf is `left`, `left`, `right`, and there are non-result-producing cases, and the original combined result is `E`, then the injection expression assigned to `vMerged` is
 
     ```swift
-    `Optional.some(
+    Optional.some(
       BuilderType.buildEither(first:
         BuilderType.buildEither(first:
-          BuilderType.buildEither(second: E))))`
+          BuilderType.buildEither(second: E))))
     ```
 
     Note that all of the assignments to `vMerged` will be type-checked together, which should allow any free generic arguments in the result types of the injections to be unified.
 
-* After the statement, if the statement is not using an injection tree or if there are any non-result-producing cases, then  for each of the variables `v` declared above, a new unique variable `v2` is initialized by calling the function-building method `buildOptional(``:)` with `v` as the argument, and `v2` is then a partial result of the surrounding block.  Otherwise, there is a unique variable `vMerged`, and `vMerged` is a partial result of the surrounding block.
+* After the statement, if the statement is not using an injection tree or if there are any non-result-producing cases, then  for each of the variables `v` declared above, a new unique variable `v2` is initialized by calling the function-building method `buildOptional(_:)` with `v` as the argument, and `v2` is then a partial result of the surrounding block.  Otherwise, there is a unique variable `vMerged`, and `vMerged` is a partial result of the surrounding block.
 
 #### Imperative control-flow statements
 
@@ -424,8 +424,8 @@ If no `buildDo` is provided, `do` statements are not supported in the body.
 
 `for`...`in` statements execute each of the iterations of the loop, collecting the partial results from all iterations into an array. That array is then passed into `buildArray`. Specifically:
 
-* A unique variable `v` is declared immediately prior to the `do`.
-* A unique variable `vArray` is declared immediately prior to the `do`, is given `Array` type (with as-yet-undetermined element type), and is initialized to `[]`.
+* A unique variable `v` is declared immediately prior to the `for`.
+* A unique variable `vArray` is declared immediately prior to the `for`, is given `Array` type (with as-yet-undetermined element type), and is initialized to `[]`.
 * The transformation is applied recursively to the body of the `for`..`in` loop, except that the partial result produced by the body is appended to the array via a call to `vArray.append`.
 * The result of calling `buildArray(vArray)` is assigned to `v`, and `v` becomes a partial result of the containing block.
 
@@ -586,7 +586,7 @@ to the same code anyway:
   // partial result is v0_result
 ```
 
-The two calls to `p` happen to involve arguments which are also transformed blocks; we'll leave those alone for now, but
+The two calls to `paragraph` happen to involve arguments which are also transformed blocks; we'll leave those alone for now, but
 suffice it to say that they'll also get transformed in time when the type-checker gets around to checking those calls.  These are just non-assignment expression-statements, so we just lift them into the `Component` type:
 
 ```swift
@@ -633,7 +633,7 @@ division {
 }
 ```
 
-This closure has now been completely transformed (except for the nested closures passed to `p`).
+This closure has now been completely transformed (except for the nested closures passed to `paragraph`).
 
 ## Type inference
 
@@ -719,7 +719,7 @@ When a `View`-conforming type defines it's `body`, the `@ViewBuilder` attribute 
 
 ## Source compatibility
 
-Function builders are an additive feature which should not effect existing source code.
+Function builders are an additive feature which should not affect existing source code.
 
 Because some decisions with function builders are implementation-defined, e.g. the structure of the injection tree for `switch` statements, it is possible that certain DSLs will observe differences in behavior across future compiler versions if they are written to observe such differences.
 
@@ -932,4 +932,4 @@ If we take as given that the feature should adapt function-body syntax, it is re
 
 Therefore, we are proposing a model where the need for a function builder transformation can be inferred from type context, which is somewhat more “magical” than Swift generally prefers but also allows very lightweight-feeling DSLs, with the hope that the guidelines we've laid out in this proposal will help to limit abuse.
 
-The function-building methods in this proposal have been deliberately chosen to cover the different situations in which results can be produced rather than to try to closely match the different source structures that can give rise to these situations.  For example, there is a `buildOptional` that works with an optional result, which might be optional for many different reasons, rather than a `buildIf` that takes a condition and the result of applying the transformation to the controlled block of the `if`.  The latter would more closely resemble the rules of an arbitrary term rewriter, but it is not be possible to come up with a finite set of such rules that could be soundly applied to an arbitrary function in Swift.  For example, there would be no way to to apply that `buildIf` to an `if let` condition: for one, the condition isn't just a boolean expression, but more importantly, the controlled block cannot be evaluated before the condition has been (uniquely and successfully) evaluated to bind the `let` variable.  We could perhaps add a `buildIfLet`  to handle this, but the same idea could never be extended to allow a  `buildIfCase` or `buildFinalResult`.  Such things require a true term-rewriting system, which may be desirable but is far beyond the scope of this proposal.
+The function-building methods in this proposal have been deliberately chosen to cover the different situations in which results can be produced rather than to try to closely match the different source structures that can give rise to these situations.  For example, there is a `buildOptional` that works with an optional result, which might be optional for many different reasons, rather than a `buildIf` that takes a condition and the result of applying the transformation to the controlled block of the `if`.  The latter would more closely resemble the rules of an arbitrary term rewriter, but it is not be possible to come up with a finite set of such rules that could be soundly applied to an arbitrary function in Swift.  For example, there would be no way to apply that `buildIf` to an `if let` condition: for one, the condition isn't just a boolean expression, but more importantly, the controlled block cannot be evaluated before the condition has been (uniquely and successfully) evaluated to bind the `let` variable.  We could perhaps add a `buildIfLet`  to handle this, but the same idea could never be extended to allow a  `buildIfCase` or `buildFinalResult`.  Such things require a true term-rewriting system, which may be desirable but is far beyond the scope of this proposal.
