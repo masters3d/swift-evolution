@@ -252,7 +252,7 @@ Within a statement block, the individual statements are separately transformed i
 
 After the transformation has been applied to all the statements, a call to `buildBlock` is generated to form a *combined result*, with all the partial results as unlabelled arguments.
 
-If the statement block is the top-level body of the function being transformed, the final statement in the transformed block is a `return` with the combined result expression as its operand.  Otherwise, the combined result is propagated outwards, typically by assigning it (possibly after a transformation) to a local variable in the enclosing block; the exact rule is specified in the section for the enclosing statement below.
+If the statement block is the top-level body of the function being transformed, the final statement in the transformed block is a `return` with the combined result expression as its operand, wrapped in `buildFinalResult` if it was provided by the builder.  Otherwise, the combined result is propagated outwards, typically by assigning it (possibly after a transformation) to a local variable in the enclosing block; the exact rule is specified in the section for the enclosing statement below.
 
 #### Declaration statements
 
