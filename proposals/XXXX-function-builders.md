@@ -248,7 +248,7 @@ The function builder transform is a recursive transformation operating on statem
 
 #### Statement blocks
 
-Within a statement block, the individual statements are separately transformed into sequences of statements which are then concatenated. Each such sequence may optionally produce a single *partial result*, which is an expression (typically a reference to a local variable) which can be used later in the block.
+Within a statement block, the individual statements are separately transformed into sequences of statements which are then concatenated. Each such sequence may optionally produce a single *partial result*, which is an expression (typically a reference to a unique local variable defined as part of the transformation) which can be used later in the block.
 
 After the transformation has been applied to all the statements, a call to `buildBlock` is generated to form a *combined result*, with all the partial results as unlabelled arguments.
 
