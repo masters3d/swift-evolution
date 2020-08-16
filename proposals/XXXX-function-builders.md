@@ -308,9 +308,27 @@ static func buildExpression(_: ()) -> Component { ... }
 
 #### Selection statements
 
-`if`/`else` chains and `switch` statements produce values conditionally depending on their cases. There are two basic transformation patterns which can be used, depending on what the builder type provides; we'll show examples of each, then explain the details of the transformation.
+`if`/`else` chains and `switch` statements produce values conditionally depending on their cases. There are two basic transformation patterns which can be used, depending on the selection statement itself; we'll show examples of each, then explain the details of the transformation.
 
-Consider the following DSL code:
+Consider a simple "if" statement without an "else" block:
+
+```swift
+if i == 0 {
+  "0"
+}
+```
+
+The first transformation pattern for selection statements turns the case into its own optional partial result in the enclosing block.  This is a simple transformation handling code that is optionally executed:
+
+```swift
+var vCase0: String?
+if i == 0 {
+  vCase0 = "0"
+}
+let v0 = BuilderType.buildOptional(vCase0)
+```
+
+The second transformation pattern produces a balanced binary tree of injections into a single partial result in the enclosing block. It can support general selection statements such as `if`-`else` and `switch`. Consider the following DSL code:
 
 ```swift
 if i == 0 {
@@ -322,25 +340,7 @@ if i == 0 {
 }
 ```
 
-The first transformation pattern for selection statements turns each case into its own optional partial result in the enclosing block.  This is a simple transformation which is easy to enable, but it produces more partial results in the enclosing block and therefore may be less efficient to handle at runtime.  Under this pattern, the example code becomes:
-
-```swift
-var vCase0: String?
-var vCase1: String?
-var vCase2: Tree?
-if i == 0 {
-  vCase0 = "0"
-} else if i == 1 {
-  vCase1 = "1"
-} else {
-  vCase2 = generateFibTree(i)
-}
-let v0 = BuilderType.buildOptional(vCase0)
-let v1 = BuilderType.buildOptional(vCase1)
-let v2 = BuilderType.buildOptional(vCase2)
-```
-
-The second transformation pattern produces a balanced binary tree of injections into a single partial result in the enclosing block. This can be more efficient in some cases, but it's also more work to enable it in the function builder type, and many DSLs won't substantially benefit.  Under this pattern, the example code becomes something like the following:
+Under this pattern, the example code becomes something like the following:
 
 ```swift
 let vMerged: PartialResult
@@ -390,7 +390,7 @@ The transformation then proceeds as follows:
 
     Note that all of the assignments to `vMerged` will be type-checked together, which should allow any free generic arguments in the result types of the injections to be unified.
 
-* After the statement, if the statement is not using an injection tree or if there are any non-result-producing cases, then  for each of the variables `v` declared above, a new unique variable `v2` is initialized by calling the function-building method `buildOptional(_:)` with `v` as the argument, and `v2` is then a partial result of the surrounding block.  Otherwise, there is a unique variable `vMerged`, and `vMerged` is a partial result of the surrounding block.
+* After the statement, if the statement is not using an injection tree or if there are any non-result-producing cases, then for each of the variables `v` declared above, a new unique variable `v2` is initialized by calling the function-building method `buildOptional(_:)` with `v` as the argument, and `v2` is then a partial result of the surrounding block.  Otherwise, there is a unique variable `vMerged`, and `vMerged` is a partial result of the surrounding block.
 
 #### Imperative control-flow statements
 
@@ -573,8 +573,7 @@ For the `if` statement, we see that there are two cases: the “then” case and
   }
 ```
 
-We're not using an injection tree because the function builder type doesn't declare those methods, but it would work out
-to the same code anyway:
+We're not using an injection tree because this is a single `if` without an `else`:
 
 ```swift
   var v0_opt: [HTML]?
